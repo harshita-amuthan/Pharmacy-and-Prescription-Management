@@ -1,0 +1,178 @@
+import javafx.application.Application;
+import javafx.beans.property.SimpleStringProperty;
+import javafx.collections.FXCollections;
+import javafx.collections.ObservableList;
+import javafx.geometry.Insets;
+import javafx.scene.Scene;
+import javafx.scene.control.*;
+import javafx.scene.control.cell.PropertyValueFactory;
+import javafx.scene.layout.BorderPane;
+import javafx.scene.layout.VBox;
+import javafx.stage.Stage;
+
+import java.sql.*;
+
+public class PharmacyApp extends Application {
+
+    // Database Credentials (Update as needed)
+    private static final String DB_URL = "jdbc:mysql://localhost:3306/pharmacy_db";
+    private static final String DB_USER = "root";
+    private static final String DB_PASSWORD = "your_password";
+
+    private TableView<PrescriptionModel> table = new TableView<>();
+    private ObservableList<PrescriptionModel> prescriptionData = FXCollections.observableArrayList();
+
+    public static void main(String[] args) {
+        launch(args);
+    }
+
+    @Override
+    public void start(Stage primaryStage) {
+        primaryStage.setTitle("Pharmacy & Prescription Management System");
+
+        // UI Layout Components
+        BorderPane root = new BorderPane();
+        root.setPadding(new Insets(10));
+
+        // Setup Table Columns
+        TableColumn<PrescriptionModel, String> colId = new TableColumn<>("ID");
+        colId.setCellValueFactory(new PropertyValueFactory<>("id"));
+
+        TableColumn<PrescriptionModel, String> colPatient = new TableColumn<>("Patient Name");
+        colPatient.setCellValueFactory(new PropertyValueFactory<>("patientName"));
+
+        TableColumn<PrescriptionModel, String> colMedication = new TableColumn<>("Medication");
+        colMedication.setCellValueFactory(new PropertyValueFactory<>("medicationName"));
+
+        TableColumn<PrescriptionModel, String> colDosage = new TableColumn<>("Dosage");
+        colDosage.setCellValueFactory(new PropertyValueFactory<>("dosage"));
+
+        TableColumn<PrescriptionModel, String> colStatus = new TableColumn<>("Status");
+        colStatus.setCellValueFactory(new PropertyValueFactory<>("status"));
+
+        table.getColumns().addAll(colId, colPatient, colMedication, colDosage, colStatus);
+        loadPrescriptionData();
+        table.setItems(prescriptionData);
+
+        // Action Buttons
+        Button btnFulfill = new Button("Fulfill Selected Prescription");
+        btnFulfill.setStyle("-fx-background-color: #2ecc71; -fx-text-fill: white; -fx-font-weight: bold;");
+        btnFulfill.setOnAction(e -> fulfillPrescription());
+
+        Button btnRefresh = new Button("Refresh Data");
+        btnRefresh.setOnAction(e -> loadPrescriptionData());
+
+        VBox vbox = new VBox(10, new Label("Active Prescriptions:"), table, btnFulfill, btnRefresh);
+        vbox.setPadding(new Insets(10));
+        root.setCenter(vbox);
+
+        Scene scene = new Scene(root, 700, 450);
+        primaryStage.setScene(scene);
+        primaryStage.show();
+    }
+
+    /**
+     * Loads prescription records by joining Patients, Prescriptions, and Medications tables.
+     */
+    private void loadPrescriptionData() {
+        prescriptionData.clear();
+        String query = "SELECT p.id, pat.name AS patient_name, m.name AS med_name, p.dosage, p.status " +
+                       "FROM prescriptions p " +
+                       "JOIN patients pat ON p.patient_id = pat.id " +
+                       "JOIN medications m ON p.medication_id = m.id";
+
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD);
+             Statement stmt = conn.createStatement();
+             ResultSet rs = stmt.executeQuery(query)) {
+
+            while (rs.next()) {
+                prescriptionData.add(new PrescriptionModel(
+                        rs.getString("id"),
+                        rs.getString("patient_name"),
+                        rs.getString("med_name"),
+                        rs.getString("dosage"),
+                        rs.getString("status")
+                ));
+            }
+        } catch (SQLException e) {
+            showAlert("Database Error", "Failed to load data: " + e.getMessage());
+        }
+    }
+
+    /**
+     * Fulfills a prescription using a JDBC Transaction to ensure inventory stock decreases safely.
+     */
+    private void fulfillPrescription() {
+        PrescriptionModel selected = table.getSelectionModel().getSelectedItem();
+        if (selected == null) {
+            showAlert("Selection Error", "Please select a prescription to fulfill.");
+            return;
+        }
+
+        if ("Completed".equals(selected.getStatus())) {
+            showAlert("Notice", "This prescription has already been fulfilled.");
+            return;
+        }
+
+        String updatePrescriptionSQL = "UPDATE prescriptions SET status = 'Completed' WHERE id = ?";
+        String updateStockSQL = "UPDATE medications m JOIN prescriptions p ON m.id = p.medication_id " +
+                                "SET m.stock = m.stock - 1 WHERE p.id = ?";
+
+        try (Connection conn = DriverManager.getConnection(DB_URL, DB_USER, DB_PASSWORD)) {
+            conn.setAutoCommit(false); // Start Transaction
+
+            try (PreparedStatement pstmt1 = conn.prepareStatement(updatePrescriptionSQL);
+                 PreparedStatement pstmt2 = conn.prepareStatement(updateStockSQL)) {
+
+                pstmt1.setInt(1, Integer.parseInt(selected.getId()));
+                pstmt1.executeUpdate();
+
+                pstmt2.setInt(1, Integer.parseInt(selected.getId()));
+                pstmt2.executeUpdate();
+
+                conn.commit(); // Commit Transaction
+                showAlert("Success", "Prescription fulfilled and inventory updated!");
+                loadPrescriptionData();
+
+            } catch (SQLException ex) {
+                conn.rollback(); // Rollback on failure
+                showAlert("Transaction Failed", "Error processing fulfillment: " + ex.getMessage());
+            }
+        } catch (SQLException e) {
+            showAlert("Database Connection Error", e.getMessage());
+        }
+    }
+
+    private void showAlert(String title, String message) {
+        Alert alert = new Alert(Alert.AlertType.INFORMATION);
+        alert.setTitle(title);
+        alert.setHeaderText(null);
+        alert.setContentText(message);
+        alert.showAndWait();
+    }
+
+    /**
+     * Model class representing TableView rows.
+     */
+    public static class PrescriptionModel {
+        private final SimpleStringProperty id;
+        private final SimpleStringProperty patientName;
+        private final SimpleStringProperty medicationName;
+        private final SimpleStringProperty dosage;
+        private final SimpleStringProperty status;
+
+        public PrescriptionModel(String id, String patientName, String medicationName, String dosage, String status) {
+            this.id = new SimpleStringProperty(id);
+            this.patientName = new SimpleStringProperty(patientName);
+            this.medicationName = new SimpleStringProperty(medicationName);
+            this.dosage = new SimpleStringProperty(dosage);
+            this.status = new SimpleStringProperty(status);
+        }
+
+        public String getId() { return id.get(); }
+        public String getPatientName() { return patientName.get(); }
+        public String getMedicationName() { return medicationName.get(); }
+        public String getDosage() { return dosage.get(); }
+        public String getStatus() { return status.get(); }
+    }
+}
