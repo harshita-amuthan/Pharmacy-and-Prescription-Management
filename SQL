@@ -1,0 +1,34 @@
+CREATE DATABASE IF NOT EXISTS pharmacy_db;
+USE pharmacy_db;
+
+-- 1. Patients Table
+CREATE TABLE IF NOT EXISTS patients (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    age INT,
+    phone VARCHAR(20)
+);
+
+-- 2. Medications / Inventory Table
+CREATE TABLE IF NOT EXISTS medications (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    name VARCHAR(100) NOT NULL,
+    stock INT NOT NULL,
+    price DECIMAL(10,2) NOT NULL
+);
+
+-- 3. Prescriptions Table
+CREATE TABLE IF NOT EXISTS prescriptions (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    patient_id INT,
+    medication_id INT,
+    dosage VARCHAR(100),
+    status VARCHAR(50) DEFAULT 'Pending',
+    FOREIGN KEY (patient_id) REFERENCES patients(id),
+    FOREIGN KEY (medication_id) REFERENCES medications(id)
+);
+
+-- Insert Sample Data
+INSERT INTO patients (name, age, phone) VALUES ('John Doe', 45, '555-0192'), ('Jane Smith', 32, '555-8491');
+INSERT INTO medications (name, stock, price) VALUES ('Amoxicillin 500mg', 150, 12.50), ('Ibuprofen 800mg', 300, 8.00);
+INSERT INTO prescriptions (patient_id, medication_id, dosage, status) VALUES (1, 1, '1 tablet 3x daily', 'Pending');
